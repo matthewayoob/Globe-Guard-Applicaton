@@ -1,1 +1,90 @@
+import requests
+from bs4 import BeautifulSoup
+import json
+import re
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+from transformers import pipeline
 
+# Mock Data for Local Health Sources
+mock_local_data = [
+    {
+        "source": "Cape Town News",
+        "headline": "Malaria cases rising in northern regions",
+        "content": "Recent reports indicate a significant rise in malaria cases in northern Cape Town.",
+        "date": "2024-12-01",
+    },
+    {
+        "source": "Durban Health Advisory",
+        "headline": "Cholera outbreak in coastal towns",
+        "content": "Local hospitals have reported an outbreak of cholera in Durban's coastal areas.",
+        "date": "2024-11-15",
+    },
+]
+
+# Function to scrape data from CDC/WHO
+def scrape_global_data(url):
+    try:
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        # Example: Extract headlines and summaries
+        articles = soup.find_all("article")  # Modify based on structure
+        data = [{"title": art.find("h2").text, "summary": art.find("p").text} for art in articles]
+        return data
+    except Exception as e:
+        print(f"Error scraping {url}: {e}")
+        return []
+
+# Data Preprocessing Function
+def preprocess_text(text):
+    text = re.sub(r"\s+", " ", text)  # Remove extra whitespace
+    text = re.sub(r"[^\w\s]", "", text)  # Remove punctuation
+    return text.lower()
+
+# Risk Classification using Transformers (Mock Example)
+def classify_risk(content_list):
+    classifier = pipeline("text-classification", model="distilbert-base-uncased")
+    categories = []
+    for content in content_list:
+        result = classifier(content)
+        if "malaria" in content.lower():
+            categories.append({"content": content, "risk": "High"})
+        elif "cholera" in content.lower():
+            categories.append({"content": content, "risk": "Moderate"})
+        else:
+            categories.append({"content": content, "risk": "Low"})
+    return categories
+
+# Mock Data Integration
+def integrate_data(global_data, local_data):
+    combined_data = global_data + local_data
+    return pd.DataFrame(combined_data)
+
+# Main Algorithm
+def main():
+    # Scrape CDC/WHO data
+    cdc_data = scrape_global_data("https://www.cdc.gov/travel")
+    who_data = scrape_global_data("https://www.who.int/emergencies")
+    
+    # Preprocess and combine data
+    mock_local_data_cleaned = [
+        {"source": d["source"], "headline": preprocess_text(d["headline"]), "content": preprocess_text(d["content"]), "date": d["date"]}
+        for d in mock_local_data
+    ]
+    
+    # Combine and classify
+    combined_data = integrate_data(cdc_data, mock_local_data_cleaned)
+    risk_classified = classify_risk(combined_data["content"].tolist())
+    
+    # Output results
+    for item in risk_classified:
+        print(f"Content: {item['content']}\nRisk: {item['risk']}\n")
+    
+    # Save to JSON
+    with open("output.json", "w") as f:
+        json.dump(risk_classified, f, indent=4)
+    print("Data saved to output.json")
+
+if __name__ == "__main__":
+    main()
