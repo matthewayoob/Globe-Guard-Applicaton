@@ -1,0 +1,73 @@
+import requests
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
+
+# Mock API integration
+def fetch_api_data():
+    # Example API endpoints (replace with actual APIs for CDC/WHO data)
+    api_data = [
+        {"source": "CDC API", "headline": "Dengue Fever outbreak", "content": "CDC reports dengue fever cases surging in tropical regions.", "date": "2024-11-30"},
+        {"source": "WHO API", "headline": "Influenza alert", "content": "WHO warns of influenza strains spreading in colder climates.", "date": "2024-11-28"},
+    ]
+    return api_data
+
+# Simulated user feedback
+mock_feedback = [
+    {"content": "CDC reports dengue fever cases surging in tropical regions.", "user_feedback": "Confirmed High Risk"},
+    {"content": "WHO warns of influenza strains spreading in colder climates.", "user_feedback": "Moderate Risk"},
+]
+
+# Enhanced NLP Model using Naive Bayes (mock training)
+def train_nlp_model():
+    # Example training data
+    training_data = [
+        ("Dengue fever cases are on the rise.", "High"),
+        ("Influenza cases are spreading.", "Moderate"),
+        ("Minor increase in cold cases.", "Low"),
+    ]
+    df = pd.DataFrame(training_data, columns=["content", "risk"])
+    X_train, X_test, y_train, y_test = train_test_split(df["content"], df["risk"], test_size=0.2, random_state=42)
+
+    # TF-IDF Vectorizer with Naive Bayes Pipeline
+    pipeline = Pipeline([
+        ("tfidf", TfidfVectorizer()),
+        ("classifier", MultinomialNB())
+    ])
+    pipeline.fit(X_train, y_train)
+    return pipeline
+
+# Classification with user feedback integration
+def classify_with_feedback(contents, model, feedback):
+    classifications = []
+    for content in contents:
+        predicted_risk = model.predict([content])[0]
+        # Override with feedback if available
+        feedback_risk = next((f["user_feedback"].split()[1] for f in feedback if f["content"] == content), None)
+        risk = feedback_risk if feedback_risk else predicted_risk
+        classifications.append({"content": content, "risk": risk})
+    return classifications
+
+# Main execution
+def main():
+    # Fetch data from APIs
+    api_data = fetch_api_data()
+    content_list = [item["content"] for item in api_data]
+
+    # Train NLP model
+    nlp_model = train_nlp_model()
+
+    # Classify content with user feedback loop
+    classifications = classify_with_feedback(content_list, nlp_model, mock_feedback)
+
+    # Convert input and output to DataFrame for better formatting
+    input_data = pd.DataFrame(api_data)
+    output_data = pd.DataFrame(classifications)
+
+    # Display input and output for visualization
+    return input_data, output_data
+
+# Run the enhanced inference
+enhanced_input_data, enhanced_output_data = main()
