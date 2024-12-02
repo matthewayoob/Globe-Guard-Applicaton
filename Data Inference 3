@@ -1,0 +1,83 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import re
+from transformers import pipeline
+import json
+
+# Web scraping function for dynamic data extraction
+def scrape_health_data(url, headline_tag, content_tag):
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, "html.parser")
+
+        # Extract headlines and content
+        headlines = soup.find_all(headline_tag)
+        contents = soup.find_all(content_tag)
+
+        # Pair headlines with content
+        data = []
+        for h, c in zip(headlines, contents):
+            headline = re.sub(r"\s+", " ", h.text.strip())
+            content = re.sub(r"\s+", " ", c.text.strip())
+            data.append({"source": url, "headline": headline, "content": content})
+        return data
+    except Exception as e:
+        print(f"Error scraping {url}: {e}")
+        return []
+
+# Predefined sources to scrape
+sources = [
+    {"url": "https://www.cdc.gov/travel", "headline_tag": "h2", "content_tag": "p"},
+    {"url": "https://www.who.int/emergencies", "headline_tag": "h3", "content_tag": "p"},
+]
+
+# Mock feedback for risk adjustments
+user_feedback = [
+    {"content": "CDC warns of new malaria strain spreading rapidly.", "user_feedback": "High"},
+    {"content": "WHO notes mild increase in flu cases globally.", "user_feedback": "Moderate"},
+]
+
+# Risk classification function
+def classify_content(contents):
+    classifier = pipeline("text-classification", model="distilbert-base-uncased", truncation=True)
+    results = []
+    for content in contents:
+        prediction = classifier(content, truncation=True)
+        risk = "High" if "malaria" in content.lower() else "Moderate" if "flu" in content.lower() else "Low"
+        results.append({"content": content, "risk": risk})
+    return results
+
+# Combine scraping, classification, and feedback loop
+def generate_inferences(sources, feedback):
+    # Scrape data from all sources
+    scraped_data = []
+    for source in sources:
+        scraped_data.extend(scrape_health_data(source["url"], source["headline_tag"], source["content_tag"]))
+
+    # Classify content
+    contents = [entry["content"] for entry in scraped_data]
+    classified_data = classify_content(contents)
+
+    # Integrate user feedback
+    for entry in classified_data:
+        feedback_entry = next((f for f in feedback if f["content"] == entry["content"]), None)
+        if feedback_entry:
+            entry["risk"] = feedback_entry["user_feedback"]
+
+    return pd.DataFrame(scraped_data), pd.DataFrame(classified_data)
+
+# Main function
+def main():
+    # Generate inferences
+    input_data, output_data = generate_inferences(sources, user_feedback)
+
+    # Save results for app integration
+    input_data.to_json("health_data_input.json", orient="records", indent=4)
+    output_data.to_json("health_data_output.json", orient="records", indent=4)
+
+    return input_data, output_data
+
+# Run the sophisticated inference pipeline
+sophisticated_input_data, sophisticated_output_data = main()
