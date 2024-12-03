@@ -2,82 +2,178 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import re
-from transformers import pipeline
 import json
+import logging
+from typing import List, Dict, Optional
+from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
+import torch
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
 
-# Web scraping function for dynamic data extraction
-def scrape_health_data(url, headline_tag, content_tag):
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, "html.parser")
+class HealthDataInferenceEngine:
+    def __init__(self):
+        """Initialize logging and configure advanced NLP components."""
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+        self.logger = logging.getLogger(__name__)
+        
+        # Advanced NLP configuration
+        self.model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.nlp_model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
+        
+        # Risk classification configuration
+        self.risk_keywords = {
+            'high': ['outbreak', 'epidemic', 'critical', 'spreading rapidly'],
+            'moderate': ['increasing', 'potential risk', 'developing'],
+            'low': ['mild', 'isolated', 'contained']
+        }
+    
+    def scrape_health_data(self, sources: List[Dict]) -> List[Dict]:
+        """
+        Advanced web scraping with multiple error handling strategies.
+        
+        Args:
+            sources (List[Dict]): List of source configurations
+        
+        Returns:
+            List of scraped health data entries
+        """
+        all_data = []
+        for source in sources:
+            try:
+                response = requests.get(
+                    source['url'], 
+                    timeout=15, 
+                    headers={'User-Agent': 'GlobeGuard Health Inference Bot'}
+                )
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.content, "html.parser")
+                
+                # More flexible headline and content extraction
+                headlines = soup.find_all(source.get('headline_tag', ['h2', 'h3']))
+                contents = soup.find_all(source.get('content_tag', ['p', 'div']))
+                
+                for h, c in zip(headlines[:5], contents[:5]):  # Limit to prevent overload
+                    headline = re.sub(r'\s+', ' ', h.text.strip())
+                    content = re.sub(r'\s+', ' ', c.text.strip())
+                    
+                    all_data.append({
+                        "source": source['url'],
+                        "headline": headline,
+                        "content": content,
+                        "timestamp": pd.Timestamp.now()
+                    })
+            
+            except requests.RequestException as e:
+                self.logger.error(f"Scraping error for {source['url']}: {e}")
+        
+        return all_data
+    
+    def advanced_risk_classification(self, contents: List[str], user_feedback: Optional[List[Dict]] = None) -> List[Dict]:
+        """
+        Advanced multi-strategy risk classification.
+        
+        Args:
+            contents (List[str]): Text contents to classify
+            user_feedback (Optional[List[Dict]]): User-provided risk feedback
+        
+        Returns:
+            List of classified risk entries
+        """
+        results = []
+        
+        for content in contents:
+            # Keyword-based initial classification
+            risk_level = 'low'
+            for level, keywords in self.risk_keywords.items():
+                if any(keyword in content.lower() for keyword in keywords):
+                    risk_level = level
+                    break
+            
+            # Advanced NLP classification
+            try:
+                inputs = self.tokenizer(content, return_tensors="pt", truncation=True, max_length=512)
+                with torch.no_grad():
+                    outputs = self.nlp_model(**inputs)
+                    probabilities = torch.softmax(outputs.logits, dim=-1)
+                    confidence = probabilities.max().item()
+            except Exception as e:
+                self.logger.warning(f"NLP classification error: {e}")
+                confidence = 0.5
+            
+            # User feedback override
+            if user_feedback:
+                feedback_entry = next((f for f in user_feedback if f['content'] == content), None)
+                if feedback_entry:
+                    risk_level = feedback_entry['user_feedback']
+            
+            results.append({
+                "content": content,
+                "risk": risk_level.capitalize(),
+                "confidence": confidence
+            })
+        
+        return results
+    
+    def generate_inferences(
+        self, 
+        sources: List[Dict], 
+        user_feedback: Optional[List[Dict]] = None
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        Comprehensive inference generation pipeline.
+        
+        Args:
+            sources (List[Dict]): Web sources to scrape
+            user_feedback (Optional[List[Dict]]): User-provided feedback
+        
+        Returns:
+            Dictionary of input and output DataFrames
+        """
+        # Scrape data
+        scraped_data = self.scrape_health_data(sources)
+        
+        # Extract contents
+        contents = [entry['content'] for entry in scraped_data]
+        
+        # Classify contents
+        classified_data = self.advanced_risk_classification(contents, user_feedback)
+        
+        # Convert to DataFrames
+        input_df = pd.DataFrame(scraped_data)
+        output_df = pd.DataFrame(classified_data)
+        
+        # Save results
+        try:
+            input_df.to_json("health_data_input.json", orient="records", indent=4)
+            output_df.to_json("health_data_output.json", orient="records", indent=4)
+        except Exception as e:
+            self.logger.error(f"Error saving JSON files: {e}")
+        
+        return {"input": input_df, "output": output_df}
 
-        # Extract headlines and content
-        headlines = soup.find_all(headline_tag)
-        contents = soup.find_all(content_tag)
-
-        # Pair headlines with content
-        data = []
-        for h, c in zip(headlines, contents):
-            headline = re.sub(r"\s+", " ", h.text.strip())
-            content = re.sub(r"\s+", " ", c.text.strip())
-            data.append({"source": url, "headline": headline, "content": content})
-        return data
-    except Exception as e:
-        print(f"Error scraping {url}: {e}")
-        return []
-
-# Predefined sources to scrape
-sources = [
-    {"url": "https://www.cdc.gov/travel", "headline_tag": "h2", "content_tag": "p"},
-    {"url": "https://www.who.int/emergencies", "headline_tag": "h3", "content_tag": "p"},
-]
-
-# Mock feedback for risk adjustments
-user_feedback = [
-    {"content": "CDC warns of new malaria strain spreading rapidly.", "user_feedback": "High"},
-    {"content": "WHO notes mild increase in flu cases globally.", "user_feedback": "Moderate"},
-]
-
-# Risk classification function
-def classify_content(contents):
-    classifier = pipeline("text-classification", model="distilbert-base-uncased", truncation=True)
-    results = []
-    for content in contents:
-        prediction = classifier(content, truncation=True)
-        risk = "High" if "malaria" in content.lower() else "Moderate" if "flu" in content.lower() else "Low"
-        results.append({"content": content, "risk": risk})
-    return results
-
-# Combine scraping, classification, and feedback loop
-def generate_inferences(sources, feedback):
-    # Scrape data from all sources
-    scraped_data = []
-    for source in sources:
-        scraped_data.extend(scrape_health_data(source["url"], source["headline_tag"], source["content_tag"]))
-
-    # Classify content
-    contents = [entry["content"] for entry in scraped_data]
-    classified_data = classify_content(contents)
-
-    # Integrate user feedback
-    for entry in classified_data:
-        feedback_entry = next((f for f in feedback if f["content"] == entry["content"]), None)
-        if feedback_entry:
-            entry["risk"] = feedback_entry["user_feedback"]
-
-    return pd.DataFrame(scraped_data), pd.DataFrame(classified_data)
-
-# Main function
 def main():
-    # Generate inferences
-    input_data, output_data = generate_inferences(sources, user_feedback)
+    # Configuration
+    sources = [
+        {"url": "https://www.cdc.gov/travel", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.who.int/emergencies", "headline_tag": ["h3", "h2"], "content_tag": ["p", "div"]},
+    ]
+    
+    user_feedback = [
+        {"content": "CDC warns of new malaria strain spreading rapidly.", "user_feedback": "High"},
+        {"content": "WHO notes mild increase in flu cases globally.", "user_feedback": "Moderate"},
+    ]
+    
+    # Run inference
+    inference_engine = HealthDataInferenceEngine()
+    results = inference_engine.generate_inferences(sources, user_feedback)
+    
+    # Display results
+    print("Input Data:")
+    print(results['input'])
+    print("\nOutput Data:")
+    print(results['output'])
 
-    # Save results for app integration
-    input_data.to_json("health_data_input.json", orient="records", indent=4)
-    output_data.to_json("health_data_output.json", orient="records", indent=4)
-
-    return input_data, output_data
-
-# Run the sophisticated inference pipeline
-sophisticated_input_data, sophisticated_output_data = main()
+if __name__ == "__main__":
+    main()
