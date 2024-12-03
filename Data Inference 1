@@ -1,3 +1,212 @@
+
+import requests
+from bs4 import BeautifulSoup
+import json
+import re
+import logging
+from typing import List, Dict, Optional
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from transformers import pipeline
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(levelname)s: %(message)s',
+    filename='globeguard_inference.log'
+)
+logger = logging.getLogger(__name__)
+
+# Configuration for risk classification
+RISK_KEYWORDS = {
+    'high': ['outbreak', 'spreading rapidly', 'critical', 'severe', 'epidemic'],
+    'moderate': ['increasing', 'cases rising', 'potential risk', 'developing'],
+    'low': ['mild', 'under control', 'isolated']
+}
+
+class GlobalHealthDataInference:
+    def __init__(self, sources=None):
+        """
+        Initialize data inference with optional custom sources.
+        
+        Args:
+            sources (List[str], optional): List of URLs to scrape
+        """
+        self.sources = sources or [
+            "https://www.cdc.gov/travel", 
+            "https://www.who.int/emergencies"
+        ]
+        self.classifier = pipeline(
+            "text-classification", 
+            model="distilbert-base-uncased",
+            top_k=None
+        )
+    
+    def scrape_global_data(self, url: str) -> List[Dict[str, str]]:
+        """
+        Scrape data from a given URL with robust error handling.
+        
+        Args:
+            url (str): URL to scrape
+        
+        Returns:
+            List of dictionaries containing scraped data
+        """
+        try:
+            response = requests.get(
+                url, 
+                timeout=10, 
+                headers={'User-Agent': 'GlobeGuard Health Tracker'}
+            )
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            articles = soup.find_all(["article", "div"], class_=re.compile("article|news"))
+            
+            data = []
+            for art in articles:
+                title = art.find(["h2", "h1"])
+                summary = art.find(["p", "div"], class_=re.compile("summary|content"))
+                
+                if title and summary:
+                    data.append({
+                        "title": title.get_text(strip=True),
+                        "summary": summary.get_text(strip=True)
+                    })
+            
+            return data
+        except requests.RequestException as e:
+            logger.error(f"Scraping error for {url}: {e}")
+            return []
+    
+    def preprocess_text(self, text: str) -> str:
+        """
+        Clean and normalize text for analysis.
+        
+        Args:
+            text (str): Input text
+        
+        Returns:
+            Cleaned text
+        """
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'[^\w\s]', '', text)
+        return text.lower().strip()
+    
+    def classify_risk(self, content_list: List[str]) -> List[Dict[str, str]]:
+        """
+        Classify risk levels using multiple strategies.
+        
+        Args:
+            content_list (List[str]): List of text contents
+        
+        Returns:
+            List of dictionaries with content and risk classification
+        """
+        classifications = []
+        
+        for content in content_list:
+            # Keyword-based initial classification
+            risk_level = 'low'
+            for level, keywords in RISK_KEYWORDS.items():
+                if any(keyword in content.lower() for keyword in keywords):
+                    risk_level = level
+                    break
+            
+            # NLP model refinement (optional, weighted)
+            try:
+                nlp_result = self.classifier(content)
+                for result in nlp_result[0]:
+                    if result['score'] > 0.7:
+                        # Potential model-based refinement logic
+                        pass
+            except Exception as e:
+                logger.warning(f"NLP classification error: {e}")
+            
+            classifications.append({
+                "content": content,
+                "risk": risk_level.capitalize()
+            })
+        
+        return classifications
+    
+    def process_health_data(self, mock_local_data: Optional[List[Dict]] = None) -> List[Dict]:
+        """
+        Comprehensive data processing pipeline.
+        
+        Args:
+            mock_local_data (Optional[List[Dict]]): Optional local data for testing
+        
+        Returns:
+            Processed and classified health data
+        """
+        global_data = []
+        for source in self.sources:
+            global_data.extend(self.scrape_global_data(source))
+        
+        # Include mock data if provided
+        if mock_local_data:
+            global_data.extend([
+                {
+                    "title": item.get("headline", ""),
+                    "summary": item.get("content", "")
+                } for item in mock_local_data
+            ])
+        
+        processed_data = [
+            self.preprocess_text(item.get('summary', '')) 
+            for item in global_data
+        ]
+        
+        return self.classify_risk(processed_data)
+    
+    def save_results(self, results: List[Dict], filename: str = 'output.json'):
+        """
+        Save classification results to a JSON file.
+        
+        Args:
+            results (List[Dict]): Classified results
+            filename (str): Output filename
+        """
+        try:
+            with open(filename, "w", encoding='utf-8') as f:
+                json.dump(results, f, indent=4, ensure_ascii=False)
+            logger.info(f"Results saved to {filename}")
+        except IOError as e:
+            logger.error(f"Error saving results: {e}")
+
+def main():
+    inference_engine = GlobalHealthDataInference()
+    
+    # Example mock local data
+    mock_local_data = [
+        {
+            "source": "Cape Town News",
+            "headline": "Malaria cases rising in northern regions",
+            "content": "Recent reports indicate a significant rise in malaria cases in northern Cape Town.",
+            "date": "2024-12-01",
+        }
+    ]
+    
+    try:
+        results = inference_engine.process_health_data(mock_local_data)
+        for item in results:
+            print(f"Content: {item['content']}\nRisk: {item['risk']}\n")
+        
+        inference_engine.save_results(results)
+    
+    except Exception as e:
+        logger.error(f"Processing failed: {e}")
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
 import requests
 from bs4 import BeautifulSoup
 import json
