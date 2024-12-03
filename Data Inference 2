@@ -1,73 +1,163 @@
-import requests
+import logging
+import numpy as np
 import pandas as pd
+from typing import List, Dict, Any
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report, confusion_matrix
 
-# Mock API integration
-def fetch_api_data():
-    # Example API endpoints (replace with actual APIs for CDC/WHO data)
-    api_data = [
-        {"source": "CDC API", "headline": "Dengue Fever outbreak", "content": "CDC reports dengue fever cases surging in tropical regions.", "date": "2024-11-30"},
-        {"source": "WHO API", "headline": "Influenza alert", "content": "WHO warns of influenza strains spreading in colder climates.", "date": "2024-11-28"},
-    ]
-    return api_data
+class HealthRiskInference:
+    def __init__(self):
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+        self.model = None
+        self.label_encoder = LabelEncoder()
+    
+    def fetch_api_data(self) -> List[Dict[str, str]]:
+        """Simulate API data fetching with robust error simulation."""
+        try:
+            api_data = [
+                {
+                    "source": "CDC API", 
+                    "headline": "Dengue Fever outbreak", 
+                    "content": "CDC reports dengue fever cases surging in tropical regions.", 
+                    "date": "2024-11-30",
+                    "geo_context": {"region": "Tropical", "risk_factor": 0.8}
+                },
+                {
+                    "source": "WHO API", 
+                    "headline": "Influenza alert", 
+                    "content": "WHO warns of influenza strains spreading in colder climates.", 
+                    "date": "2024-11-28",
+                    "geo_context": {"region": "Global", "risk_factor": 0.5}
+                }
+            ]
+            return api_data
+        except Exception as e:
+            self.logger.error(f"API data fetch error: {e}")
+            return []
+    
+    def generate_training_data(self) -> pd.DataFrame:
+        """Generate comprehensive training dataset."""
+        training_data = [
+            {"content": "Dengue fever cases are rising critically", "risk": "High"},
+            {"content": "Mild influenza spread detected", "risk": "Moderate"},
+            {"content": "Isolated cold cases reported", "risk": "Low"},
+            {"content": "Epidemic level dengue outbreak", "risk": "High"},
+            {"content": "Localized flu transmission", "risk": "Moderate"},
+        ]
+        return pd.DataFrame(training_data)
+    
+    def preprocess_features(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Advanced feature preprocessing."""
+        df = data.copy()
+        
+        # Encode risk labels
+        df['risk_encoded'] = self.label_encoder.fit_transform(df['risk'])
+        
+        # Vectorize text
+        vectorizer = TfidfVectorizer(
+            stop_words='english', 
+            ngram_range=(1, 2), 
+            max_features=5000
+        )
+        
+        return {
+            'X': vectorizer.fit_transform(df['content']),
+            'y': df['risk_encoded'],
+            'vectorizer': vectorizer
+        }
+    
+    def train_model(self) -> Pipeline:
+        """Train advanced ML model with cross-validation."""
+        training_data = self.generate_training_data()
+        processed_data = self.preprocess_features(training_data)
+        
+        pipeline = Pipeline([
+            ('classifier', RandomForestClassifier(
+                n_estimators=100, 
+                random_state=42, 
+                class_weight='balanced'
+            ))
+        ])
+        
+        # Cross-validation
+        cv_scores = cross_val_score(
+            pipeline, 
+            processed_data['X'], 
+            processed_data['y'], 
+            cv=3
+        )
+        
+        self.logger.info(f"Cross-validation scores: {cv_scores}")
+        
+        pipeline.fit(processed_data['X'], processed_data['y'])
+        return pipeline
+    
+    def classify_content(
+        self, 
+        contents: List[str], 
+        mock_feedback: List[Dict] = None
+    ) -> List[Dict[str, str]]:
+        """Advanced classification with feedback integration."""
+        if not self.model:
+            self.model = self.train_model()
+        
+        # Vectorize input
+        vectorizer = TfidfVectorizer(
+            stop_words='english', 
+            ngram_range=(1, 2), 
+            max_features=5000
+        )
+        X_input = vectorizer.fit_transform(contents)
+        
+        # Predict risks
+        predicted_risks = self.model.predict(X_input)
+        decoded_risks = self.label_encoder.inverse_transform(predicted_risks)
+        
+        # Feedback override mechanism
+        classifications = []
+        for content, risk in zip(contents, decoded_risks):
+            if mock_feedback:
+                feedback_override = next(
+                    (f['user_feedback'] for f in mock_feedback if f['content'] == content), 
+                    None
+                )
+                risk = feedback_override or risk
+            
+            classifications.append({
+                "content": content, 
+                "risk": risk,
+                "confidence": np.max(self.model.predict_proba(X_input)[0])
+            })
+        
+        return classifications
+    
+    def run_inference(self):
+        """Orchestrate entire inference process."""
+        api_data = self.fetch_api_data()
+        contents = [item['content'] for item in api_data]
+        
+        mock_feedback = [
+            {"content": "CDC reports dengue fever cases surging in tropical regions.", "user_feedback": "High"},
+            {"content": "WHO warns of influenza strains spreading in colder climates.", "user_feedback": "Moderate"},
+        ]
+        
+        results = self.classify_content(contents, mock_feedback)
+        
+        for result in results:
+            self.logger.info(f"Content: {result['content']}")
+            self.logger.info(f"Risk: {result['risk']}")
+            self.logger.info(f"Confidence: {result['confidence']}\n")
+        
+        return results
 
-# Simulated user feedback
-mock_feedback = [
-    {"content": "CDC reports dengue fever cases surging in tropical regions.", "user_feedback": "Confirmed High Risk"},
-    {"content": "WHO warns of influenza strains spreading in colder climates.", "user_feedback": "Moderate Risk"},
-]
-
-# Enhanced NLP Model using Naive Bayes (mock training)
-def train_nlp_model():
-    # Example training data
-    training_data = [
-        ("Dengue fever cases are on the rise.", "High"),
-        ("Influenza cases are spreading.", "Moderate"),
-        ("Minor increase in cold cases.", "Low"),
-    ]
-    df = pd.DataFrame(training_data, columns=["content", "risk"])
-    X_train, X_test, y_train, y_test = train_test_split(df["content"], df["risk"], test_size=0.2, random_state=42)
-
-    # TF-IDF Vectorizer with Naive Bayes Pipeline
-    pipeline = Pipeline([
-        ("tfidf", TfidfVectorizer()),
-        ("classifier", MultinomialNB())
-    ])
-    pipeline.fit(X_train, y_train)
-    return pipeline
-
-# Classification with user feedback integration
-def classify_with_feedback(contents, model, feedback):
-    classifications = []
-    for content in contents:
-        predicted_risk = model.predict([content])[0]
-        # Override with feedback if available
-        feedback_risk = next((f["user_feedback"].split()[1] for f in feedback if f["content"] == content), None)
-        risk = feedback_risk if feedback_risk else predicted_risk
-        classifications.append({"content": content, "risk": risk})
-    return classifications
-
-# Main execution
 def main():
-    # Fetch data from APIs
-    api_data = fetch_api_data()
-    content_list = [item["content"] for item in api_data]
+    inference = HealthRiskInference()
+    inference.run_inference()
 
-    # Train NLP model
-    nlp_model = train_nlp_model()
-
-    # Classify content with user feedback loop
-    classifications = classify_with_feedback(content_list, nlp_model, mock_feedback)
-
-    # Convert input and output to DataFrame for better formatting
-    input_data = pd.DataFrame(api_data)
-    output_data = pd.DataFrame(classifications)
-
-    # Display input and output for visualization
-    return input_data, output_data
-
-# Run the enhanced inference
-enhanced_input_data, enhanced_output_data = main()
+if __name__ == "__main__":
+    main()
