@@ -175,5 +175,40 @@ def main():
     print("\nOutput Data:")
     print(results['output'])
 
+def main():
+    # Configuration
+    sources = [
+        {"url": "https://www.capetownetc.com/news", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.iol.co.za/news/south-africa/western-cape", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://ground.news/interest/cape-town", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.timeslive.co.za", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.newsnow.com/ca/World/Africa/South+Africa/Durban", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://ground.news/interest/durban", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.newsnow.com/us/World/Africa/South+Africa/Western+Cape", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.newsnow.com/ca/World/Africa/South+Africa/Cape+Town", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.capetownjournal.com", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.news24.com", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.cdc.gov/travel", "headline_tag": ["h2", "h3"], "content_tag": ["p", "div"]},
+        {"url": "https://www.who.int/emergencies", "headline_tag": ["h3", "h2"], "content_tag": ["p", "div"]},
+    ]
+    
+    user_feedback = [
+        {"content": "CDC warns of new malaria strain spreading rapidly.", "user_feedback": "High"},
+        {"content": "WHO notes mild increase in flu cases globally.", "user_feedback": "Moderate"},
+    ]
+    
+    # Run inference
+    inference_engine = HealthDataInferenceEngine()
+    results = inference_engine.generate_inferences(sources, user_feedback)
+    
+    # Display results
+    print("Input Data:")
+    print(results['input'])
+    print("\nOutput Data:")
+    print(results['output'])
+
+if __name__ == "__main__":
+    main()
+
 if __name__ == "__main__":
     main()
